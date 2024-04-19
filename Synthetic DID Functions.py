@@ -21,7 +21,7 @@ An example with an actual effect of +2 is included in the code as an example.
 #%% Synthetic Control Difference in Differences
 
 # clear memory first
-%reset -f
+#%reset -f
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -32,7 +32,7 @@ import pandas as pd
 from toolz import partial
 #import seaborn as sns
 from matplotlib import pyplot as plt
-from matplotlib import style
+#from matplotlib import style
 import statsmodels.formula.api as smf
 import cvxpy as cp
 from joblib import Parallel, delayed
@@ -54,15 +54,10 @@ def fit_time_weights(data, outcome_col, year_col, unit_col, treat_col, post_col)
     control = data[~data[treat_col]]
     
     # pivot into matrix representation
-    y_pre = (control[~control[post_col]].
-             pivot_table(values=outcome_col, index=year_col, columns=unit_col))
+    y_pre = (control[~control[post_col]].pivot_table(values=outcome_col, index=year_col, columns=unit_col))
     
     # group post treatment time periods into an appropriate length vector
-    y_post_mean = (control[control[post_col]]
-        .groupby(unit_col)
-        [outcome_col]
-        .mean()
-        .values)
+    y_post_mean = (control[control[post_col]].groupby(unit_col)[outcome_col].mean().values)
     
     # add vector on top of the matrix for intercept calcs
     X = np.concatenate([np.ones((1, y_pre.shape[1])), y_pre.values], axis=0)
@@ -82,12 +77,7 @@ def fit_time_weights(data, outcome_col, year_col, unit_col, treat_col, post_col)
 def calculate_regularization(data, outcome_col, year_col, unit_col, treat_col, post_col):
         n_treated_post = data[data[post_col] & data[treat_col]].shape[0]
         
-        first_diff_std = (data[~data[post_col] & ~data[treat_col]]
-                      .sort_values(year_col)
-                      .groupby(unit_col)
-                      [outcome_col]
-                      .diff()
-                      .std())
+        first_diff_std = (data[~data[post_col] & ~data[treat_col]].sort_values(year_col).groupby(unit_col)[outcome_col].diff().std())
     
         return n_treated_post**(1/4) * first_diff_std
     
@@ -97,14 +87,10 @@ def fit_unit_weights(data, outcome_col, year_col, unit_col, treat_col, post_col)
     pre_data = data[~data[post_col]]
     
     # pivot into matrix representation
-    y_pre_control = (pre_data[~pre_data[treat_col]]
-                     .pivot(year_col, unit_col, outcome_col))
+    y_pre_control = (pre_data[~pre_data[treat_col]].pivot(year_col, unit_col, outcome_col))
     
     # group treated units by time periods to get vector
-    y_pre_treat_mean = (pre_data[pre_data[treat_col]]
-                        .groupby(year_col)
-                        [outcome_col]
-                        .mean())
+    y_pre_treat_mean = (pre_data[pre_data[treat_col]].groupby(year_col)[outcome_col].mean())
     
     # sack the matrix and vector
     T_pre = y_pre_control.shape[0]
@@ -125,11 +111,7 @@ def fit_unit_weights(data, outcome_col, year_col, unit_col, treat_col, post_col)
 # join the weights datasets to the main dataset
 def join_weights(data, unit_w, time_w, year_col, unit_col, treat_col, post_col):
     return(
-        data.
-        set_index([year_col,unit_col])
-        .join(time_w)
-        .join(unit_w)
-        .reset_index()
+        data.set_index([year_col,unit_col]).join(time_w).join(unit_w).reset_index()
         .fillna({time_w.name: 1 / len(pd.unique(data[data[post_col]][year_col])),
                  unit_w.name: 1 / len(pd.unique(data[data[treat_col]][unit_col]))})
         .assign(**{"weights": lambda d: (d[time_w.name] * d[unit_w.name]).round(10)})
@@ -176,20 +158,38 @@ def make_random_placebo(data, unit_col, treat_col):
     return control.assign(**{treat_col: control[unit_col] == placebo_state})
 
 # Estimate appropriate standard errors
-def estimate_se(data, outcome_col, year_col, unit_col, treat_col, post_col, bootstrap_rounds=400, seed=0, njobs=4):
+#def estimate_se(data, outcome_col, year_col, unit_col, treat_col, post_col, bootstrap_rounds=400, seed=0, njobs=4):
+#    np.random.seed(seed=seed)
+    
+#    sdid_fn = partial(synthetic_diff_in_diff,
+#                      outcome_col = outcome_col, 
+#                      year_col = year_col, 
+#                      unit_col = unit_col,
+#                      treat_col = treat_col,
+#                      post_col = post_col)
+    
+#    effects = Parallel(n_jobs = njobs)(delayed(sdid_fn)(make_random_placebo(data, unit_col=unit_col, treat_col=treat_col))
+#                                        for _ in range(bootstrap_rounds))
+    
+#    return np.std(effects, axis = 0)
+
+# without multi-processing
+def estimate_se(data, outcome_col, year_col, unit_col, treat_col, post_col, bootstrap_rounds=400, seed=0):
     np.random.seed(seed=seed)
     
-    sdid_fn = partial(synthetic_diff_in_diff,
-                      outcome_col = outcome_col, 
-                      year_col = year_col, 
-                      unit_col = unit_col,
-                      treat_col = treat_col,
-                      post_col = post_col)
+    effects = []
+    for _ in range(bootstrap_rounds):
+        placebo_data = make_random_placebo(data, unit_col=unit_col, treat_col=treat_col)
+        effect = synthetic_diff_in_diff(outcome_col=outcome_col,
+                                         year_col=year_col,
+                                         unit_col=unit_col,
+                                         treat_col=treat_col,
+                                         post_col=post_col,
+                                         data=placebo_data)
+        effects.append(effect)
     
-    effects = Parallel(n_jobs = njobs)(delayed(sdid_fn)(make_random_placebo(data, unit_col=unit_col, treat_col=treat_col))
-                                        for _ in range(bootstrap_rounds))
-    
-    return np.std(effects, axis = 0)
+    return np.std(effects, axis=0)
+
 
 #%% randomly generate data to implement functions
 
@@ -245,7 +245,7 @@ data.info()
 # graph to compare treatment unit to mean of control group
 ax = plt.subplot(1, 1, 1)
 (data
- .assign(california = np.where(data["treated"], 'treated_unit', "Control Units"))
+ .assign(treated = np.where(data["treated"], 'treated_unit', "Control Units"))
  .groupby(["year", "treated"])
  ["variable_of_interest"]
  .mean()
@@ -296,7 +296,6 @@ plt.show()
 
 #%% run placebo variance estimates and standard errors
 
-
 # aggregate effects form placebo 
 effect = synthetic_diff_in_diff(data,
                        outcome_col="variable_of_interest",
@@ -338,7 +337,7 @@ standard_errors = pd.Series(standard_errors)
 plt.figure(figsize=(16,6))
 plt.plot(effects,color = "C0")
 plt.fill_between(effects.index, effects-1.96*standard_errors, effects+1.96*standard_errors, alpha=0.2,  color="C0")
-plt.hlines(y=0,xmin = 2004, xmax = 2009, lw =3, color = 'black',  linestyle=":")
+plt.hlines(y=2,xmin = 2004, xmax = 2009, lw =3, color = 'black',  linestyle=":")
 plt.xlabel("Year")
 plt.ylabel("Effect of Variable of Interest")
 plt.title("SDID Effect Estimate by Year for Variable of Interest with 95% CI");
