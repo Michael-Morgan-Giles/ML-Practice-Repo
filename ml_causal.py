@@ -18,7 +18,7 @@ link_features = "https://raw.githubusercontent.com/matheusfacure/python-causalit
 df = pd.read_csv(link)
 
 # split test / train
-test, train = train_test_split(pd.read_csv(link_features).merge(df[['customer_id']].assign(net_value = df.drop(columns='customer_id').sum(axis=1)), on = "customer_id"), 
+train, test = train_test_split(pd.read_csv(link_features).merge(df[['customer_id']].assign(net_value = df.drop(columns='customer_id').sum(axis=1)), on = "customer_id"), 
                                test_size=0.3,
                                random_state=13)
 
@@ -53,7 +53,7 @@ params_dict = {'n_estimators': 400,
                 'max_depth': 4,
                 'min_samples_split': 10,
                 'learning_rate': 0.01,
-                'loss': 'absolute_error'}
+                'loss': 'squared_error'}
 
 X = ["region", "income", 'age']
 y = 'net_value'
@@ -69,6 +69,34 @@ training_predict = (train[X].pipe(encode).assign(pred = mod.predict(train[X].pip
 print("Train R2: ", r2_score(y_true=train[y], y_pred=training_predict["pred"]))
 print("Test R2: ", r2_score(y_true=test[y], y_pred=mod.predict(test[X].pipe(encode))))
 
-del train, test, regions_to_net, training_predict, mod, X, y, params_dict, encode
+# build in decision boundary
+## save model prediction
+mod_data = test
+mod_data['prediction'] = mod.predict(mod_data[X].pipe(encode))
+
+## if E[Y|X]>0 business else no business
+
+def mod_bin(pred,bins):
+    bands = pd.qcut(pred,q=bins, retbins=True)[1]
+
+    def bin_func(pred):
+        return np.digitize(pred, bands)
+    return bin_func
+
+bin_fun = mod_bin(training_predict['pred'], 20)
+
+band_df = mod_data.assign(band = bin_fun(mod_data['prediction']))
+
+plt.figure(figsize=(12,6))
+sns.barplot(band_df,x = 'band', y = "net_value")
+plt.show()
+
+band_df['invest'] = np.where(band_df['band'] > 15, "Invest","Don't Invest")
+
+band_df.groupby("invest")['net_value'].mean()
+
+# remove everything
+del train, test, regions_to_net, training_predict, mod, X, y, params_dict, encode, mod_data, band_df, bin_fun, mod_bin
 gc.collect()
 
+# end of script
