@@ -1,0 +1,295 @@
+---
+title: "MDM_exploration"
+author: "mmg"
+output:
+  pdf_document: default
+---
+
+```{r set notation to normal, include=FALSE}
+options(scipen = 999)
+
+```
+
+## What is a Mahalanobis Distance?
+
+Simply, a Mahalanobis Distance (MD) is how far away two points are within a multivariate space. 
+
+They're actually a multivariate version of the $z$ scores i.e. $z = \frac{x_i - \mu_x}{\sigma_x}$. Similarly, it can also be interpreted as a euclidean distance weighted by a covariance matrix. 
+
+It's quite helpful for identifying "similarity" between dimensions and hence has been used for outlier detection and matching procedures. 
+
+Let's define this a bit more formally. We can find the MD of two points in X as such:
+
+$D_M(X) = \sqrt{(X - \mu)'\Sigma^{-1} (X - \mu)}$
+
+
+Not to complicated, just a bit of linear algebra. So let's write up a simple function to calculate the MD and compare it to the base `R` built in `mahalanobis` function.
+
+## A simple MD function
+```{r generalised Mahalanobis function}
+
+#generate random matrix
+set.seed(42)
+X <- matrix(rnorm(10*3), ncol = 3)
+
+# simplified function 
+
+mahal_dis <- function(x){
+  # make sure x is a matrix
+  #x <- if (is.vector(x)) matrix(x, ncol = length(x)) else as.matrix(x)
+  
+  # compute distance
+  #return(rowSums((x - colMeans(x)) %*% solve(cov(x)) * (x - colMeans(x))))
+  return(rowSums(sweep(x, 2L, colMeans(x)) %*% solve(cov(x)) * sweep(x, 2L, colMeans(x))))
+}
+
+# custom func
+mahal_dis(X)
+# base R stats func
+mahalanobis(X, colMeans(X), cov(X))
+
+# note the outputs are identical
+identical(mahal_dis(X), mahalanobis(X, colMeans(X), cov(X)))
+
+# to get D_M(X) take the square root of the outputs
+sqrt(mahal_dis(X))
+
+
+```
+
+Pretty simple to implement. But let's go through this as a worked example to have a bit of a peak under the hood. 
+
+So we have out $100 \times 3$ matrix $X$. Let's look at the first observation (row):
+```{r print matrix X}
+print(head(X[1,]))
+```
+
+So, this observations has the coordinates $x = 1.37, y = 1.30$ & $z = -0.30$  *(assuming you didn't change the seed)*. So, how far away is this observation from the rest of the data? 
+
+We can calculate the MD for this using the mean, $(\mu)$ and variance $(\Sigma)$ data we have:
+```{r}
+# vector of mu
+mu <- colMeans(X)
+print(mu)
+
+# covariance matrix
+sigma <- cov(X)
+print(sigma)
+```
+
+So let's take all of this information and calculate the MD for this observation to see if the function is working as expected.
+
+$D_M = \sqrt{
+\begin{bmatrix}
+1.37 & 1.30 & -0.30
+\end{bmatrix}
+-
+\begin{bmatrix}
+0.54 & -0.16 & -0.17
+\end{bmatrix}
+\cdot
+\begin{bmatrix}
+0.69 & -0.51 & 0.42 \\
+-0.51 & 2.65 & -0.28 \\
+0.42 & -0.28 & 1.33
+\end{bmatrix}^{-1}
+\cdot
+\left(
+\begin{bmatrix}
+1.37 \\
+1.30 \\
+-0.30
+\end{bmatrix}
+-
+\begin{bmatrix}
+0.54 \\
+-0.16 \\
+-0.17
+\end{bmatrix}
+\right)
+}$
+
+I feel for the soul that would calculate the above by hand, but using a computer to calculate it instead we can see that it results in a MD distance of $D_M = 1.8$ or  $D^2_M = 3.24$ **(note the** `mahalanobis` **function returns** $D^2_M$**)**.
+
+
+Let's confirm this with some code:
+
+```{r coding up above example}
+# change this i if you want to test other observations
+i <- 1
+
+# same as R function
+print(t(X[i,] - mu) %*% solve(cov(X)) %*% (X[i,] - mu))
+
+# note the function returns D^2_M and not D_M - so if you want that you have to take the square root of the output. 
+# It's the same information however. 
+print(sqrt(t(X[i,] - mu) %*% solve(cov(X)) %*% (X[i,] - mu)))
+
+```
+
+
+```{r for loop test, include=FALSE} 
+
+for (i in 1:nrow(X)){
+  r_calc <- t(X[i,] - mu) %*% solve(cov(X)) %*% (X[i,] - mu)
+  print(paste0(r_calc[1], ": same as R funciton"))
+  
+  me_calc <- sqrt(t(X[i,] - mu) %*% solve(cov(X)) %*% (X[i,] - mu))    
+  print(paste0(me_calc[1], ": actually calculated"))
+
+  }
+
+```
+
+
+```{r testing function, include=FALSE}
+library(data.table)
+diamond <- setDT(read.csv('https://raw.githubusercontent.com/selva86/datasets/master/diamonds.csv'))
+
+x_test <- diamond[,.(carat, depth, price)]
+
+# custom func
+head(mahal_dis(as.matrix(x_test)))
+# base R stats func
+head(mahalanobis(x_test, colMeans(x_test), cov(x_test)))
+
+rm(diamond, x_test)
+gc()
+# okay this returns D^2_M and not D_M
+```
+
+
+## How can we adapt this for Causal Inference?
+
+Above we've explore the general way to calculate the MD for any point in $X$. However, neatly for us we can extend this to comparing treated and control units in a nearest neighbors matching process. 
+
+This involves us changing the MD equation a little bit to compare out treated unit, $X_i$, to the controls units, $X_j$, like this: 
+
+$D_M(X_i, X_j) = \sqrt{(X_i - X_j)'\Sigma^{-1} (X_i - X_j)}$
+
+The aim is to match a set of control units to each treated unit so we can apply some causal estimator to the matched data (whether that be DID, RDD, SC or some other estimator).
+
+We can then choose the $N$ nearest neighbours to our treated unit $X_i$ to select our control group. 
+
+Let's code this up quickly:
+
+```{r Simple Mahalanobis Distance Matching Function}
+matching_mahal_dis <- function(x_i, x_j){
+  # make sure x is a matrix
+  #x <- if (is.vector(x)) matrix(x, ncol = length(x)) else as.matrix(x)
+  
+  # bind together for covariance matrix calculation
+  X_all <- rbind(x_i, x_j)
+  
+  #TODO: add robust covariance matrix estimation
+  
+  
+  # compute distance
+  return(rowSums((x_i - x_j) %*% solve(cov(X_all)) * (x_i - x_j)))
+  #return(rowSums(sweep(x, 2L, colMeans(x)) %*% solve(cov(x)) * sweep(x, 2L, colMeans(x))))
+}
+
+# generate some random data
+treated <- matrix(c(rep(0,10), rep(1,10), rep(-1,10)), ncol = 3)
+set.seed(42)
+#treated <- matrix(rnorm(10*3), ncol = 3)
+control <- matrix(rnorm(10*3, mean = 0, sd = 1), ncol = 3)
+
+# compute distance between treated and control units
+matching_mahal_dis(treated, control)
+
+```
+These distances show how "similar" each control unit is to each treated unit. 
+
+For example, we can see that the last observation in the control data frame is $0.38$ so it's very "similar" to the treated unit and is probably a unit we want to select. 
+
+```{r similar units}
+print(treated[10,]) # treated unit
+print(control[10,]) #control unit 
+```
+Similarly, we can see that some units are "dis-similar" and carry higher distance measures such as unit 8 with a distance of $13.15$. So, based on the information we have in this dataset, we would have a lower preference to select this unit for our control group.
+
+```{r dis-similar units}
+print(treated[8,]) # treated unit
+print(control[8,]) #control unit 
+```
+So, we have a simple function to calculate the distance between treated and control units. But, there is an important extension to consider before applying this. 
+
+The Mahalanobis Distance using the sample mean and variance can be quite sensitive to outliers. One way to deal with this is to use a robust estimate for the covariance matrix. 
+
+... to add
+
+
+
+
+## Using MDM in a Panel Data Setting
+
+Now that we've explored the MDM in a simplified setting, let's see if we can apply it in a panel data structure. 
+
+Below we have a function that generates a random panel dataset and adds a pre-specified `treatement_effect` to the treated units. So we have a ground truth to what the actual treatment effect is that we can compare to various estimators to see how well they perform.
+
+We can also use this to test how well the MDM function works. See that using a simple DID estimator below is equal to the built in `treatement_effect`.
+
+```{r data function}
+# use data.table to generate panel
+library(data.table)
+
+## data generating function
+generate_data <- function(num_units,
+                          num_years,
+                          start_year,
+                          treated_units,
+                          treatment_year,
+                          treatment_effect,
+                          seed = 42) {
+  
+  #seed
+  set.seed(seed)
+  
+  # initialise data.table
+  data <- data.table(
+    unit = rep(1:num_units, each = num_years),
+    year = rep(start_year:(start_year + num_years - 1), times = num_units),
+    x_1 = rnorm(n = num_units * num_years, mean = 0, sd = 1),
+    x_2 = rnorm(n = num_units * num_years, mean = 0, sd = 10),
+    variable_of_interest = runif(num_units * num_years),
+    #variable_of_interest = rnorm(n = num_units * num_years, mean = 10, sd = 50),
+    treated = 0,
+    after_treatment = 0
+  )
+  
+  # add indicators
+  data[year >= treatment_year, after_treatment := 1]
+  data[unit %in% treated_units, treated := 1 ]
+  #data[, variable_of_interest := 0.5 * x_1 + 0.5 * x_2 + rnorm(n = num_units * num_years, mean = 0, sd = 1)]
+  data[after_treatment == 1 & treated == 1, variable_of_interest := variable_of_interest + treatment_effect]
+
+  return(data)
+}
+
+# call data
+# call data func
+dt <- generate_data(
+  num_units = 10,
+  num_years = 20,
+  start_year = 2000,
+  treated_units = c(2,3),
+  treatment_year = 2004,
+  treatment_effect = 2
+)
+
+head(dt)
+dt[,mean(variable_of_interest), by = treated]
+
+# simple mod showing treatment effect from simple data
+summary(lm(variable_of_interest ~ treated + after_treatment + treated:after_treatment, data = dt))$coefficients[4,1]
+summary(lm(variable_of_interest ~ treated + after_treatment + treated:after_treatment + x_1 + x_2, data = dt))$coefficients[6,1]
+```
+
+Let's use the MDM approach to match the set of control units $(X_j)$ to each treated unit $(X_i)$ to estimate a unique effect for both. 
+
+...
+
+
+
+
