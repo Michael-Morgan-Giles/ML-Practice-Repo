@@ -1,29 +1,31 @@
 ---
-title: "MDM_exploration"
-author: "mmg"
+title: "MDM Exploration"
+#author: "mmg"
 output:
+  html_document:
+    df_print: paged
   pdf_document: default
 ---
 
 ```{r set notation to normal, include=FALSE}
 options(scipen = 999)
-
+invisible(library(tidyverse))
 ```
 
 ## What is a Mahalanobis Distance?
 
-Simply, a Mahalanobis Distance (MD) is how far away two points are within a multivariate space. 
+Simply, a Mahalanobis Distance $(M_D)$ is how far away two points are within a multivariate space. 
 
 They're actually a multivariate version of the $z$ scores i.e. $z = \frac{x_i - \mu_x}{\sigma_x}$. Similarly, it can also be interpreted as a euclidean distance weighted by a covariance matrix. 
 
 It's quite helpful for identifying "similarity" between dimensions and hence has been used for outlier detection and matching procedures. 
 
-Let's define this a bit more formally. We can find the MD of two points in X as such:
+Let's define this a bit more formally. We can find the $M_D$ of a point in $X$ as such:
 
 $D_M(X) = \sqrt{(X - \mu)'\Sigma^{-1} (X - \mu)}$
 
 
-Not to complicated, just a bit of linear algebra. So let's write up a simple function to calculate the MD and compare it to the base `R` built in `mahalanobis` function.
+Not to complicated, just a bit of linear algebra. So let's write up a simple function to calculate the $M_D$ and compare it to the base `R` built in `mahalanobis` function.
 
 ## A simple MD function
 ```{r generalised Mahalanobis function}
@@ -36,10 +38,9 @@ X <- matrix(rnorm(10*3), ncol = 3)
 
 mahal_dis <- function(x){
   # make sure x is a matrix
-  #x <- if (is.vector(x)) matrix(x, ncol = length(x)) else as.matrix(x)
+  x <- if (is.vector(x)) matrix(x, ncol = length(x)) else as.matrix(x)
   
   # compute distance
-  #return(rowSums((x - colMeans(x)) %*% solve(cov(x)) * (x - colMeans(x))))
   return(rowSums(sweep(x, 2L, colMeans(x)) %*% solve(cov(x)) * sweep(x, 2L, colMeans(x))))
 }
 
@@ -57,16 +58,16 @@ sqrt(mahal_dis(X))
 
 ```
 
-Pretty simple to implement. But let's go through this as a worked example to have a bit of a peak under the hood. 
+Pretty simple to implement. But let's go through this as a worked example to have a bit of a peak at what is going on under the hood. 
 
-So we have out $100 \times 3$ matrix $X$. Let's look at the first observation (row):
+So we have our $100 \times 3$ matrix $X$. Let's look at the first observation (row):
 ```{r print matrix X}
 print(head(X[1,]))
 ```
 
 So, this observations has the coordinates $x = 1.37, y = 1.30$ & $z = -0.30$  *(assuming you didn't change the seed)*. So, how far away is this observation from the rest of the data? 
 
-We can calculate the MD for this using the mean, $(\mu)$ and variance $(\Sigma)$ data we have:
+We can calculate the $M_D$ for this using the mean, $(\mu)$ and variance $(\Sigma)$ of the matrix $X$:
 ```{r}
 # vector of mu
 mu <- colMeans(X)
@@ -77,7 +78,7 @@ sigma <- cov(X)
 print(sigma)
 ```
 
-So let's take all of this information and calculate the MD for this observation to see if the function is working as expected.
+So let's take all of this information and calculate the $M_D$ for this observation to see if the function is working as expected.
 
 $D_M = \sqrt{
 \begin{bmatrix}
@@ -109,7 +110,7 @@ $D_M = \sqrt{
 \right)
 }$
 
-I feel for the soul that would calculate the above by hand, but using a computer to calculate it instead we can see that it results in a MD distance of $D_M = 1.8$ or  $D^2_M = 3.24$ **(note the** `mahalanobis` **function returns** $D^2_M$**)**.
+I feel for the soul that would calculate the above by hand, but using a computer to calculate it instead we can see that it results in a distance of $D_M = 1.8$ or  $D^2_M = 3.24$ **(note the** `mahalanobis` **function returns** $D^2_M$**)**.
 
 
 Let's confirm this with some code:
@@ -127,6 +128,35 @@ print(sqrt(t(X[i,] - mu) %*% solve(cov(X)) %*% (X[i,] - mu)))
 
 ```
 
+Note the output is as expected at $D_M = 1.8$. However, what does this number mean? 
+
+We'll maybe a visualisation might help? Let's lower the scale to two dimensions to make the visualisation a bit easier. 
+
+```{r visualise the MD distance for observation 1}
+set.seed(42)
+# generate some simple data
+data <- matrix(rnorm(100*2), ncol = 2)
+# plot that data
+plot(data, pch = 19, main = "MD Visualisation", xlab = "X1", ylab = "X2")
+# Add lines for set MD distances (i.e contours) 
+x_seq <- seq(min(data[,1]), max(data[,1]), length.out = 100)
+y_seq <- seq(min(data[,2]), max(data[,2]), length.out = 100)
+grid <- expand.grid(X1 = x_seq, X2 = y_seq)
+z <- mahalanobis(grid, center = colMeans(data), cov = cov(data))
+z_matrix <- matrix(z, nrow = 100)
+contour(x_seq, y_seq, z_matrix, levels = c(1, 3, 5, 7), add = TRUE, col = "blue", lty = 2)
+
+
+
+```
+
+So, we can see a set of blue lines around the centre mass of the data (centroid). Each blue line is set equal to a specific $M_D$ value. 
+
+You can see that those with $M_D<1$ are all distributed around the centre (or mean). So, in theory, these points should all be relatively similar to each other. 
+
+This is the basic idea behind the Mahalanobis Distance. It accounts for the how far away a point in $n$ space is from the centroid or mean of the data. 
+
+Cool. But how is this important for causal inference? 
 
 ```{r for loop test, include=FALSE} 
 
@@ -161,9 +191,9 @@ gc()
 
 ## How can we adapt this for Causal Inference?
 
-Above we've explore the general way to calculate the MD for any point in $X$. However, neatly for us we can extend this to comparing treated and control units in a nearest neighbors matching process. 
+Above we've explore the general way to calculate the $M_D$ for any point in $X$. However, neatly for us we can extend this to comparing treated and control units in a nearest neighbors matching process. 
 
-This involves us changing the MD equation a little bit to compare out treated unit, $X_i$, to the controls units, $X_j$, like this: 
+This involves us changing the $M_D$ equation a little bit to compare a treated unit, $X_i$, to the controls units, $X_j$, like this: 
 
 $D_M(X_i, X_j) = \sqrt{(X_i - X_j)'\Sigma^{-1} (X_i - X_j)}$
 
@@ -199,7 +229,7 @@ control <- matrix(rnorm(10*3, mean = 0, sd = 1), ncol = 3)
 matching_mahal_dis(treated, control)
 
 ```
-These distances show how "similar" each control unit is to each treated unit. 
+These distances show how "similar" each control unit is to each treated unit. The larger the number, the less "similar" the control is to the treated. 
 
 For example, we can see that the last observation in the control data frame is $0.38$ so it's very "similar" to the treated unit and is probably a unit we want to select. 
 
@@ -215,20 +245,65 @@ print(control[8,]) #control unit
 ```
 So, we have a simple function to calculate the distance between treated and control units. But, there is an important extension to consider before applying this. 
 
-The Mahalanobis Distance using the sample mean and variance can be quite sensitive to outliers. One way to deal with this is to use a robust estimate for the covariance matrix. 
+The Mahalanobis Distance using the sample mean and variance can be quite sensitive to outliers. One way to deal with this is to use a rank robust estimates for the covariance matrix. There are a couple of ways to implement this, but for illustrative purposes here we will be using the minimum covariance determinant (MCD) function `CovMCD()` to estimate the robust covariance matrix. 
 
-... to add
+So let's update this function:
 
+```{r Robust Mahalanobis Distance Matching Function}
+# load in necessary package for covMCD()
+#install.packages("rrcov")
+library(rrcov)
 
+# Robust Mahalanobis Distance Matching Function
+mdm_calc <- function(x_i, x_j, robust = FALSE){
+  # make sure x_\in{i,j} is a matrix
+  x_i <- if (is.vector(x_i)) matrix(x_i, ncol = length(x_i)) else as.matrix(x_i)
+  x_j <- if (is.vector(x_j)) matrix(x_j, ncol = length(x_j)) else as.matrix(x_j)
+  
+  # bind together for covariance matrix calculation (only for one treated unit)
+  X_all <- rbind(x_i[1,], x_j)
+  
+  # add robust covariance matrix estimation
+  if (robust == TRUE) {
+    sigma <- CovMcd(X_all)$raw.cov
+  } else {
+    sigma <- cov(X_all)
+  }
+  
+  # TODO: add warning incase sigma not invertible
+  
+  # compute distance
+  return(rowSums((x_i - x_j) %*% solve(sigma) * (x_i - x_j)))
 
+}
+
+# generate some random data
+treated <- matrix(c(rep(0,10), rep(1,10), rep(-1,10)), ncol = 3)
+set.seed(42)
+#treated <- matrix(rnorm(10*3), ncol = 3)
+control <- matrix(rnorm(10*3, mean = 0, sd = 1), ncol = 3)
+
+# compute distance between treated and control units
+mdm_calc(treated, control)
+mdm_calc(treated, control, robust = TRUE)
+
+```
+
+We can now see that some control units, the $D_M(x_i, x_j)$ scores are much larger. This will make matching those units much further away significantly less likely. 
+
+The basic difference between a normal covariance and MCD, is that $\Sigma$ is estimated using a sample of the data with the smallest possible determinant. Functionally, this tries to account for issues MDM can have with non-normally distributed data and or really long/fat tails (leptokurtic distribution).
+
+This is great, we now have a function that matches a set of control units to a treated unit (with the option for robust estimation). 
+
+Let's see how we can apply this to a quasi-experimental setting. 
 
 ## Using MDM in a Panel Data Setting
 
 Now that we've explored the MDM in a simplified setting, let's see if we can apply it in a panel data structure. 
 
-Below we have a function that generates a random panel dataset and adds a pre-specified `treatement_effect` to the treated units. So we have a ground truth to what the actual treatment effect is that we can compare to various estimators to see how well they perform.
+Below we have a function that generates a random panel dataset and adds a pre-specified `treatement_effect` to the treated units. So we have a ground truth to what the actual treatment effect is that we can compare to our choosen estimator to see how well they perform.
 
-We can also use this to test how well the MDM function works. See that using a simple DID estimator below is equal to the built in `treatement_effect`.
+We can also use this to test how well the MDM function works. 
 
 ```{r data function}
 # use data.table to generate panel
@@ -267,29 +342,194 @@ generate_data <- function(num_units,
   return(data)
 }
 
-# call data
 # call data func
 dt <- generate_data(
-  num_units = 10,
-  num_years = 20,
+  num_units = 100,
+  num_years = 10,
   start_year = 2000,
   treated_units = c(2,3),
   treatment_year = 2004,
   treatment_effect = 2
 )
 
-head(dt)
-dt[,mean(variable_of_interest), by = treated]
+# summary of data
+summary(dt)
+# units and mean for variable  of interest
+dt[,.(unique_units = uniqueN(unit), mean = mean(variable_of_interest)), by = treated]
 
 # simple mod showing treatment effect from simple data
 summary(lm(variable_of_interest ~ treated + after_treatment + treated:after_treatment, data = dt))$coefficients[4,1]
-summary(lm(variable_of_interest ~ treated + after_treatment + treated:after_treatment + x_1 + x_2, data = dt))$coefficients[6,1]
+
 ```
 
-Let's use the MDM approach to match the set of control units $(X_j)$ to each treated unit $(X_i)$ to estimate a unique effect for both. 
+See that using a simple DID estimator below is approximately the built in `treatement_effect`. This is an estiamte of the ATE for the treated group.
 
-...
+However, say we want to estimate an effect for each unit. Well, we can do this but how do we choose the control group? 
+
+Well one approach is to use MDM. So, let's use MDM & DiD in this test. 
+
+The first step is to match a set of control units $(X_j)$ to each treated unit $(X_i)$ to estimate a unique effect for the treated units.
+
+The first thing to note is we will need to add a binary variable for each time period, $t\in 1, 2, 3 ... T$. 
+
+This will form part of the feature set we will match $X_i$ to $X_j$ to account for the time dimension for each unit in the panel. *This is just the simplest (and not necessarily best) way to deal with the panel structure of the data.*
+
+So let's begin coding this up: 
+
+```{r estimate DiD effects using 25 percentile for MD scores}
+
+# create time dummy variable
+dt[,t:=.GRP, by = .(year)]
+
+# split datasets into treated and control
+treated_dt <- dt[unit %in% c(2,3)]
+treated_ids <- unique(treated_dt$unit)
+
+control_dt <- dt[!unit %in% c(2,3)]
+
+# initialise table to store estimated values
+effects <- data.table(unit = NULL, DID_effect = NULL, n_matched_controls = NULL)
+
+# for each treated id, begin matching process in a for-loop for the pre-intervention period
+
+for (unit_id in treated_ids){
+  
+  # create control clients matching data
+  c_match_dt <- control_dt[after_treatment == 0]
+  
+  # merge pre-intervention treated unit to control data
+  match_data <- merge(c_match_dt[after_treatment == 0, .(year, x_1, x_2, t)], # control data
+                      treated_dt[after_treatment == 0 & unit == unit_id,  .(year, x_1, x_2, t)], # treated data
+                      all.x = TRUE, by = c('year'),
+                      suffixes = c("_control", "_treated"))
+
+  
+  c_match_dt[after_treatment == 0, dist := mdm_calc(match_data[,.(x_1_control, x_2_control, t_control)], match_data[,.(x_1_treated, x_2_treated, t_treated)], robust = FALSE)]
+  
+  # join treated data together
+  matched_data <- rbind(treated_dt[unit == unit_id, .(unit, year, variable_of_interest, treated, after_treatment)],
+                        control_dt[unit %in% c_match_dt[dist < quantile(dist, 0.25),unique(unit)] , .(unit, year, variable_of_interest, treated, after_treatment)]  # only selecting those control units that are less than the 25th percentile for calculated MD scores
+                        )
+
+  # esitmate DiD effect
+  effect <- summary(lm(variable_of_interest ~ treated + after_treatment + treated:after_treatment, data = matched_data))$coefficients[4,1]
+  
+  effects <- rbind(effects, data.table(unit = unit_id, DID_effect = effect, n_matched_controls = c_match_dt[dist < quantile(dist, 0.25),uniqueN(unit)] ))
+  
+}
+
+# this table now has the DID effects for each treated unit
+effects
 
 
+```
 
+Okay great! we now have point estimates for each unit. We can also see that for `unit==2` we matched $59$ of the $98$ control units within the 25th percentile of the $M_D$ scores *(an arbitrary choice of threshold, but it's just illustrative)*. Similarly, `unit==3` matched to $75$ of the $98$ control units. 
+
+Note, the idea here is to match the clients to be *"as similar as possible"* on as many dimensions as possible prior to receiving any treatment, such that any differences between the treated and control units can be attributed to the treatment itself *(can help the parallel trend assumption holds)*. That's the idea at least. It's usually more complicated than that in practice but it gets at the basic idea. 
+
+But, we used those matched control units to calculate the DiD estimate of the `treatment_effect`.
+
+As we can see, they're both quite close to the `treatment_effect` *(as expected)*.
+
+For a bit more fun, let's extend this a bit to estimate heterogenous DiD effects. 
+
+```{r estimate heterogenous DiD effects using 25 percentile for MD scores}
+# load plm & dummies for did estimation
+library(plm)
+invisible(library(fastDummies))
+
+# create time dummy variable
+dt[,t:=.GRP, by = .(year)]
+
+# split datasets into treated and control
+treated_dt <- dt[unit %in% c(2,3)]
+treated_ids <- unique(treated_dt$unit)
+
+control_dt <- dt[!unit %in% c(2,3)]
+
+# initialise table to store estimated values
+effects_time <- data.table(unit = NULL, year = NULL)
+
+# for each treated id, begin matching process in a for-loop for the pre-intervention period
+
+for (unit_id in treated_ids){
+  
+  # create control clients matching data
+  c_match_dt <- control_dt[after_treatment == 0]
+  
+  # merge pre-intervention treated unit to control data
+  match_data <- merge(c_match_dt[after_treatment == 0, .(year, x_1, x_2, t)], # control data
+                      treated_dt[after_treatment == 0 & unit == unit_id,  .(year, x_1, x_2, t)], # treated data
+                      all.x = TRUE, by = c('year'),
+                      suffixes = c("_control", "_treated"))
+
+  
+  c_match_dt[after_treatment == 0, dist := mdm_calc(match_data[,.(x_1_control, x_2_control, t_control)], match_data[,.(x_1_treated, x_2_treated, t_treated)], robust = FALSE)]
+  
+  # join treated data together
+  matched_data <- rbind(treated_dt[unit == unit_id, .(unit, year, variable_of_interest, treated, after_treatment)],
+                        control_dt[unit %in% c_match_dt[dist < quantile(dist, 0.25),unique(unit)] , .(unit, year, variable_of_interest, treated, after_treatment)] # only selecting those control units that are less than the 25th percentile for calculated MD scores
+                        )
+  
+  # one hot encode years
+  matched_data <- dummy_cols(matched_data, select_columns = "year")
+  
+  #TODO: set up formula for interaction terms (this joins together the interaction terms of all treated, after treated, and year dummy variables)
+  formula <- as.formula(paste0("variable_of_interest ~ ", paste0("treated:after_treatment:year_", as.character(levels(as.factor(matched_data$year))), sep = "", collapse = "+")))
+  
+  # estimate DiD effect
+  ## cluster the standard errors
+  cluster_se <- vcovHC(plm(formula = formula, data = matched_data, model = "within", effect = "twoway", index = c("unit", "year")), type = "HC1", cluster = "group")
+
+  # bind the effects together
+  effect <- cbind( data.table(unit = rep(unit_id, 6), year = 2004:2009), as.data.table(summary(plm(formula = formula, data = matched_data, model = "within", effect = "twoway", index = c("unit", "year")), vcov = cluster_se)$coefficients[,1:3]))
+  
+  # bind data.table
+  effects_time <- rbind(effects_time, effect)
+
+  
+
+}
+
+# this table now has the DID effects for each treated unit for year after treatment year
+effects_time
+
+
+```
+
+
+Cool! Now we have effects for each after treatment year for both treated units. 
+
+Note that the standard errors are heteroskedastic corrected and clustered at the unit level. Research suggests this is *"okay"* but I would probably prefer to bootstrap the confidence intervals *(but i'm too lazy to do it here)* - **so take the confidence intervals with a grain of salt**.
+
+Either way we can plot these estimates to get an idea of the heterogenous DiD Estimates for each unit after matching them to control units within the 25th percentile of estimated Mahalanobis Distance:
+
+```{r plot the effects for each unit}
+library(ggplot2)
+
+# plot two effects and their confidence intervals 2*sigma for ~ 95%
+effects_time %>%
+  mutate(unit = as.factor(unit)) %>% 
+  ggplot(aes(x = year, y = Estimate, color = unit))+
+  geom_line()+
+  geom_ribbon(aes(ymin = Estimate - 2 * `Std. Error`, ymax = Estimate + 2 * `Std. Error`), fill = "cornflowerblue", alpha = 0.2)+
+  geom_hline(yintercept = 2, linetype = "dashed", color = "black")+
+  theme_classic()+
+  labs(title = "Heterogenous DiD Estimates per Treated Unit",
+       y = "DiD Estimate")+
+  theme(legend.position = "top")+
+  scale_color_manual(values = c("black", 'darkblue'))
+
+```
+
+Looks very pretty! However, I hope it's obvious that this isn't necessarily the best way to estimate these effects. 
+
+This randomly generate data was (hopefully obviously) tailored towards illustrating a very simple example. Sadly, most real world scenarios are never this easy. 
+
+However, I hope this has introduced Mahalanobis Distance Matching as a potential method to add to the causal toolkit! 
+
+Instead of my janky functions, i'd recommend using the `MatchIt` package that has the MDM method as well as so many other matching methods tailord for causal inference! 
+
+Happy coding! 
 
