@@ -465,7 +465,9 @@ for (unit_id in treated_ids){
                       suffixes = c("_control", "_treated"))
 
   
-  c_match_dt[after_treatment == 0, dist := mdm_calc(match_data[,.(x_1_control, x_2_control, t_control)], match_data[,.(x_1_treated, x_2_treated, t_treated)], robust = FALSE)]
+  c_match_dt[after_treatment == 0, dist := mdm_calc(match_data[,.(x_1_treated, x_2_treated, t_treated)],
+                                                    match_data[,.(x_1_control, x_2_control, t_control)],
+                                                    robust = FALSE)]
   
   # join treated data together
   matched_data <- rbind(treated_dt[unit == unit_id, .(unit, year, variable_of_interest, treated, after_treatment)],
@@ -529,7 +531,7 @@ This randomly generate data was (hopefully obviously) tailored towards illustrat
 
 However, I hope this has introduced Mahalanobis Distance Matching as a potential method to add to the causal toolkit! 
 
-Instead of my janky functions, i'd recommend using the `MatchIt` package that has the MDM method as well as so many other matching methods tailord for causal inference! 
+Instead of my janky functions, i'd recommend using the `MatchIt` package that has the MDM method as well as so many other matching methods tailored for causal inference! 
 
 Happy coding! 
 
