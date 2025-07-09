@@ -48,8 +48,51 @@ params = {'n_estimators' : 400,
           'learning_rate' : 0.01,
           'loss' : "squared_error"}
 
+# S-learner
 
 
+# T-learner
+
+
+# X-learner
+
+
+# R-learner (param)
+
+
+# R-learner (non-param)
+
+
+
+
+# feature selection 
+from ml_causal import FilterSelect
+
+filter_method = FilterSelect()
+
+# F Filter with order 1
+method = 'F'
+f_imp = filter_method.get_importance(df, X_names, y_name, method,
+                      treatment_group = 'treatment1')
+f_imp.head()
+
+# F Filter with order 2
+method = 'F'
+f_imp = filter_method.get_importance(df, X_names, y_name, method,
+                      treatment_group = 'treatment1', order=2)
+f_imp.head()
+
+# LR Filter with order 1
+method = 'LR'
+lr_imp = filter_method.get_importance(df, X_names, y_name, method,
+                      treatment_group = 'treatment1', order = 1)
+lr_imp.head()
+
+method = 'KL'
+kl_imp = filter_method.get_importance(df, X_names, y_name, method,
+                      treatment_group = 'treatment1',
+                      n_bins=10)
+kl_imp.head()
 
 
 
